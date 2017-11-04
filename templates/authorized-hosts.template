@@ -1,0 +1,11 @@
+<html>
+<head>
+<title>Authorized Hosts</title>
+</head>
+<body>
+<h2>Authorized Hosts</h2>
+<ul>{{range $key, $value := .}}
+  <li><span>{{$key}}</span> <a href="remove?host={{$key}}" >Remove</a></li>
+{{end}}<ul>
+</body>
+</html>

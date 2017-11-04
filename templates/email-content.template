@@ -1,0 +1,14 @@
+<html>
+<body>
+<p>These are the sites that have been visited since the last report</p>
+{{$url := .Root}}
+{{range $device, $hosts := .Devices}}
+<section>
+  <h3>{{$device.Hostname}} {{$device.Mac}}</h3> <a href="{{$url}}/ignored-devices/add?mac={{$device.Mac}}" >Ignore</a>
+  <ul>{{range $hostname, $host := $hosts}}
+    <li><span>{{$hostname}} ({{len $host.Times}})</span> <a href="{{$url}}/authorized-hosts/add?host={{$hostname}}">Allow</a></li>
+  {{end}}</ul>
+  </section>
+{{end}}
+</body>
+</html>

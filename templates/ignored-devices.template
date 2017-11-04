@@ -1,0 +1,11 @@
+<html>
+<head>
+<title>Ignored Devices</title>
+</head>
+<body>
+<h2>Ignored Devices</h2>
+<ul>{{range $key, $value := .}}
+  <li><span>{{$key}}</span> <a href="remove?mac={{$key}}" >Remove</a></li>
+{{end}}<ul>
+</body>
+</html>
