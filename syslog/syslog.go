@@ -73,16 +73,12 @@ func parseAck(devices chan *Device, match *[]string) {
 func processFile(t *tail.Tail, devices chan *Device, requests chan *Request) {
 	var current *Request
 	for line := range t.Lines {
-		if match := reply.FindStringSubmatch(line.Text); match == nil {
-			if match = query.FindStringSubmatch(line.Text); match == nil {
-				if match = ack.FindStringSubmatch(line.Text); match != nil {
-					parseAck(devices, &match)
-				}
-			} else {
-				current = parseQuery(requests, &match)
-			}
-		} else {
+		if match := query.FindStringSubmatch(line.Text); match != nil {
+			current = parseQuery(requests, &match)
+		} else if match = reply.FindStringSubmatch(line.Text); match != nil {
 			parseReply(current, &match)
+		} else if match = ack.FindStringSubmatch(line.Text); match != nil {
+			parseAck(devices, &match)
 		}
 	}
 }
