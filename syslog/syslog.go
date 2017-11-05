@@ -37,7 +37,7 @@ type Request struct {
 func Tail(path string) (chan *Device, chan *Request, error) {
 	devices := make(chan *Device)
 	requests := make(chan *Request)
-	t, err := tail.TailFile(path, tail.Config{Follow: true})
+	t, err := tail.TailFile(path, tail.Config{ReOpen: true, Follow: true})
 	if err != nil {
 		return nil, nil, err
 	}
