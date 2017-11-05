@@ -161,7 +161,8 @@ func loadMap(tx *bolt.Tx, bucket string, result map[string]bool) {
 func loadDevices(tx *bolt.Tx, devices map[string]*Device) {
 	if bucket, err := tx.CreateBucketIfNotExists([]byte(devicesBucket)); err == nil {
 		bucket.ForEach(func(k []byte, v []byte) error {
-			device := Device{}
+			hosts := make(map[string]*Host, 0)
+			device := Device{"Unknown", "00:00:00:00:00:00", "0.0.0.0", &hosts}
 			json.Unmarshal(v, device)
 			devices[string(k)] = &device
 			return nil
