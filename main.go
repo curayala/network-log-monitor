@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/jasonlvhit/gocron"
 	"github.com/tmullender/network-log-monitor/notify"
@@ -31,7 +32,7 @@ func main() {
 	store, err := state.NewStore(config.DbURL)
 	exitOnError(err)
 	startProcessing(config.LogPath, store)
-	startUserInterface(config.HTTPHost, store)
+	startUserInterface(config, store)
 	startScheduler(config, store)
 }
 
@@ -55,10 +56,10 @@ func startProcessing(path string, store *state.Store) {
 	go process(devices, requests, store)
 }
 
-func startUserInterface(address string, store *state.Store) {
-	server := &http.Server{Addr: address}
+func startUserInterface(config *Config, store *state.Store) {
+	server := &http.Server{Addr: config.HTTPHost}
 	setupExitListener(server)
-	go startServer(server, store)
+	go startServer(server, store, config.HTTPAddress)
 }
 
 func startScheduler(config *Config, store *state.Store) {
@@ -73,7 +74,7 @@ func process(devices chan *syslog.Device, requests chan *syslog.Request, store *
 	for true {
 		select {
 		case device := <-devices:
-			store.AddDevice(device.Hostname, device.IP, device.Mac)
+			store.AddDevice(device.At, device.Hostname, device.IP, device.Mac)
 		case request := <-requests:
 			if _, authorized := (*store.GetAuthorisedHosts())[request.Host]; authorized {
 				return
@@ -86,7 +87,7 @@ func process(devices chan *syslog.Device, requests chan *syslog.Request, store *
 func handleRequest(request *syslog.Request, store *state.Store) {
 	device := store.FindDeviceByIP(request.Source)
 	if device == nil {
-		device = store.AddDevice("Unknown", request.Source, request.Source)
+		device = store.AddDevice(&time.Time{}, request.Source, request.Source, request.Source)
 	}
 	if _, ignored := (*store.GetIgnoredDevices())[device.Mac]; ignored {
 		return
@@ -94,7 +95,7 @@ func handleRequest(request *syslog.Request, store *state.Store) {
 	device.AddRequest(request.At, request.Host)
 }
 
-func startServer(server *http.Server, store *state.Store) {
+func startServer(server *http.Server, store *state.Store, address string) {
 	log.Println("Starting UI")
 	http.HandleFunc("/", ui.Root())
 	http.HandleFunc("/authorized-hosts", ui.GetAuthorizedHosts(store))
@@ -103,6 +104,7 @@ func startServer(server *http.Server, store *state.Store) {
 	http.HandleFunc("/ignored-devices", ui.GetIgnoredDevices(store))
 	http.HandleFunc("/ignored-devices/add", ui.AddIgnoredDevice(store))
 	http.HandleFunc("/ignored-devices/remove", ui.RemoveIgnoredDevice(store))
+	http.HandleFunc("/latest", ui.Latest(store, address))
 	err := server.ListenAndServe()
 	exitOnError(err)
 }
@@ -126,7 +128,7 @@ func exitOnError(err error) {
 func sendUpdate(config *Config, store *state.Store) {
 	log.Println("Sending update")
 	err := notify.SendUpdate(config.MailConfig, &notify.Content{
-		Devices: store.GetLatestRequests(),
+		Devices: store.GetLatestRequests(true),
 		Root:    config.HTTPAddress,
 	})
 	if err != nil {

@@ -67,7 +67,7 @@ func parseReply(latest *Request, match *[]string) {
 
 func parseAck(devices chan *Device, match *[]string) {
 	at, _ := time.Parse(timeFormat, (*match)[1])
-	devices <- &Device{&at, (*match)[3], (*match)[4], (*match)[2]}
+	devices <- &Device{&at, (*match)[4], (*match)[3], (*match)[2]}
 }
 
 func processFile(t *tail.Tail, devices chan *Device, requests chan *Request) {

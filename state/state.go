@@ -3,6 +3,7 @@ package state
 import (
 	"encoding/json"
 	"log"
+	"sort"
 	"time"
 
 	"github.com/boltdb/bolt"
@@ -25,6 +26,7 @@ func (host *Host) AddRequest(at *time.Time) {
 
 // Device : A device that has connected
 type Device struct {
+	At       *time.Time
 	Hostname string
 	Mac      string
 	IP       string
@@ -38,7 +40,7 @@ func (device *Device) Name() string {
 
 // AddRequest : associates a request with this device
 func (device *Device) AddRequest(at *time.Time, host string) {
-	log.Printf("Adding request: %s\n", host)
+	log.Printf("Adding request: %s to %s\n", host, device.IP)
 	if existing, exists := (*device.Requests)[host]; exists {
 		existing.AddRequest(at)
 	} else {
@@ -51,6 +53,12 @@ func (device *Device) marshall() []byte {
 	data, _ := json.Marshal(device)
 	return data
 }
+
+type byTime []*Device
+
+func (devices byTime) Len() int           { return len(devices) }
+func (devices byTime) Swap(i, j int)      { devices[i], devices[j] = devices[j], devices[i] }
+func (devices byTime) Less(i, j int) bool { return devices[i].At.After(*devices[j].At) }
 
 // Store : all the state that is managed
 type Store struct {
@@ -100,9 +108,9 @@ func (store *Store) GetAuthorisedHosts() *map[string]bool {
 }
 
 // AddDevice : adds the device to the list of devices
-func (store *Store) AddDevice(hostname string, ip string, mac string) *Device {
+func (store *Store) AddDevice(at *time.Time, hostname string, ip string, mac string) *Device {
 	hosts := make(map[string]*Host, 0)
-	device := &Device{hostname, ip, mac, &hosts}
+	device := &Device{at, hostname, mac, ip, &hosts}
 	store.devicesByIP[ip] = device
 	store.devicesByMAC[mac] = device
 	err := persistDevice(store.db, device)
@@ -121,12 +129,14 @@ func (store *Store) FindDeviceByMac(mac string) *Device {
 }
 
 // GetLatestRequests : Get a map of all the devices
-func (store *Store) GetLatestRequests() *map[*Device]*map[string]*Host {
+func (store *Store) GetLatestRequests(reset bool) *map[*Device]*map[string]*Host {
 	requests := make(map[*Device]*map[string]*Host, 0)
 	for _, device := range store.devicesByMAC {
 		requests[device] = device.Requests
-		hosts := make(map[string]*Host, 0)
-		device.Requests = &hosts
+		if reset {
+			hosts := make(map[string]*Host, 0)
+			device.Requests = &hosts
+		}
 	}
 	return &requests
 }
@@ -139,16 +149,20 @@ func NewStore(url string) (*Store, error) {
 	}
 	ignored := make(map[string]bool, 0)
 	authorized := make(map[string]bool, 0)
-	byMAC := make(map[string]*Device, 0)
+	devices := make([]*Device, 0)
 	db.Update(func(tx *bolt.Tx) error {
 		loadMap(tx, ignoredBucket, ignored)
 		loadMap(tx, authorizedBucket, authorized)
-		loadDevices(tx, byMAC)
+		loadDevices(tx, &devices)
 		return nil
 	})
 	byIP := make(map[string]*Device, 0)
-	for _, device := range byMAC {
+	byMAC := make(map[string]*Device, 0)
+	sort.Sort(byTime(devices))
+	for _, device := range devices {
+		log.Printf("Loading device: %v\n", device)
 		byIP[device.IP] = device
+		byMAC[device.Mac] = device
 	}
 	log.Printf("Loaded ignored: %d authorized: %d devices: %d\n", len(ignored), len(authorized), len(byIP))
 	return &Store{db, ignored, authorized, byIP, byMAC}, nil
@@ -163,13 +177,13 @@ func loadMap(tx *bolt.Tx, bucket string, result map[string]bool) {
 	}
 }
 
-func loadDevices(tx *bolt.Tx, devices map[string]*Device) {
+func loadDevices(tx *bolt.Tx, devices *[]*Device) {
 	if bucket, err := tx.CreateBucketIfNotExists([]byte(devicesBucket)); err == nil {
 		bucket.ForEach(func(k []byte, v []byte) error {
 			hosts := make(map[string]*Host, 0)
-			device := Device{"Unknown", "00:00:00:00:00:00", "0.0.0.0", &hosts}
-			json.Unmarshal(v, device)
-			devices[string(k)] = &device
+			device := Device{&time.Time{}, "Unknown", "00:00:00:00:00:00", "0.0.0.0", &hosts}
+			json.Unmarshal(v, &device)
+			*devices = append(*devices, &device)
 			return nil
 		})
 	}

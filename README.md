@@ -11,7 +11,7 @@ Devices or Hosts can be ignored using the Web UI
 
 ``` go-bindata -pkg notify -o notify/templates.go templates/email-content.template ```
 
-``` go-bindata -pkg ui -o ui/templates.go templates/ignored-devices.template templates/authorized-hosts.template ```
+``` go-bindata -pkg ui -o ui/templates.go templates/ ```
 
 ``` go build ```
 
