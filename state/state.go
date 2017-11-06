@@ -64,13 +64,15 @@ type Store struct {
 // IgnoreDevice : adds the device to the list of ignored devices
 func (store *Store) IgnoreDevice(mac string) {
 	store.ignored[mac] = true
-	persistKey(store.db, ignoredBucket, mac)
+	err := persistKey(store.db, ignoredBucket, mac)
+	logError("Error ignoring device: %v\n", err)
 }
 
 // UnIgnoreDevice : adds the device to the list of ignored devices
 func (store *Store) UnIgnoreDevice(ip string) {
 	delete(store.ignored, ip)
-	removeKey(store.db, ignoredBucket, ip)
+	err := removeKey(store.db, ignoredBucket, ip)
+	logError("Error unignoring device: %v\n", err)
 }
 
 // GetIgnoredDevices : gets the list of ignored devices
@@ -81,13 +83,15 @@ func (store *Store) GetIgnoredDevices() *map[string]bool {
 // AuthoriseHost : adds the host to the list of authorized hosts
 func (store *Store) AuthoriseHost(host string) {
 	store.authorized[host] = true
-	persistKey(store.db, authorizedBucket, host)
+	err := persistKey(store.db, authorizedBucket, host)
+	logError("Error authorising device: %v\n", err)
 }
 
 // DeauthoriseHost : adds the host to the list of authorized hosts
 func (store *Store) DeauthoriseHost(host string) {
 	delete(store.authorized, host)
-	removeKey(store.db, authorizedBucket, host)
+	err := removeKey(store.db, authorizedBucket, host)
+	logError("Error deauthorising device: %v\n", err)
 }
 
 // GetAuthorisedHosts :
@@ -101,7 +105,8 @@ func (store *Store) AddDevice(hostname string, ip string, mac string) *Device {
 	device := &Device{hostname, ip, mac, &hosts}
 	store.devicesByIP[ip] = device
 	store.devicesByMAC[mac] = device
-	persistDevice(store.db, device)
+	err := persistDevice(store.db, device)
+	logError("Error adding device: %v\n", err)
 	return device
 }
 
@@ -170,29 +175,32 @@ func loadDevices(tx *bolt.Tx, devices map[string]*Device) {
 	}
 }
 
-func persistDevice(db *bolt.DB, device *Device) {
+func persistDevice(db *bolt.DB, device *Device) error {
 	log.Printf("Persisting device: %v\n", *device)
-	db.Update(func(tx *bolt.Tx) error {
+	return db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte(devicesBucket))
-		bucket.Put([]byte(device.Mac), device.marshall())
-		return nil
+		return bucket.Put([]byte(device.Mac), device.marshall())
 	})
 }
 
-func removeKey(db *bolt.DB, bucket string, key string) {
+func removeKey(db *bolt.DB, bucket string, key string) error {
 	log.Printf("Removing key: %v\n", key)
-	db.Update(func(tx *bolt.Tx) error {
+	return db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte(bucket))
-		bucket.Delete([]byte(key))
-		return nil
+		return bucket.Delete([]byte(key))
 	})
 }
 
-func persistKey(db *bolt.DB, bucket string, key string) {
+func persistKey(db *bolt.DB, bucket string, key string) error {
 	log.Printf("Persisting key: %v\n", key)
-	db.Update(func(tx *bolt.Tx) error {
+	return db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte(bucket))
-		bucket.Put([]byte(key), []byte{1})
-		return nil
+		return bucket.Put([]byte(key), []byte{1})
 	})
+}
+
+func logError(msg string, err error) {
+	if err != nil {
+		log.Printf(msg, err)
+	}
 }
