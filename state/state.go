@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/boltdb/bolt"
@@ -40,7 +41,7 @@ func (device *Device) Name() string {
 
 // AddRequest : associates a request with this device
 func (device *Device) AddRequest(at *time.Time, host string) {
-	log.Printf("Adding request: %s to %s\n", host, device.IP)
+	log.Printf("Adding request: %s to %v\n", host, device)
 	if existing, exists := (*device.Requests)[host]; exists {
 		existing.AddRequest(at)
 	} else {
@@ -66,7 +67,7 @@ type Store struct {
 	ignored      map[string]bool
 	authorized   map[string]bool
 	devicesByIP  map[string]*Device
-	devicesByMAC map[string]*Device
+	devicesByMAC *sync.Map
 }
 
 // IgnoreDevice : adds the device to the list of ignored devices
@@ -111,8 +112,9 @@ func (store *Store) GetAuthorisedHosts() *map[string]bool {
 func (store *Store) AddDevice(at *time.Time, hostname string, ip string, mac string) *Device {
 	hosts := make(map[string]*Host, 0)
 	device := &Device{at, hostname, mac, ip, &hosts}
+	log.Printf("Adding device: %v\n", device)
 	store.devicesByIP[ip] = device
-	store.devicesByMAC[mac] = device
+	store.devicesByMAC.Store(mac, device)
 	err := persistDevice(store.db, device)
 	logError("Error adding device: %v\n", err)
 	return device
@@ -123,22 +125,25 @@ func (store *Store) FindDeviceByIP(ip string) *Device {
 	return store.devicesByIP[ip]
 }
 
-// FindDeviceByMac : Find the device by MAC Address
-func (store *Store) FindDeviceByMac(mac string) *Device {
-	return store.devicesByMAC[mac]
-}
-
 // GetLatestRequests : Get a map of all the devices
 func (store *Store) GetLatestRequests(reset bool) *map[*Device]*map[string]*Host {
 	requests := make(map[*Device]*map[string]*Host, 0)
-	for _, device := range store.devicesByMAC {
-		requests[device] = device.Requests
-		if reset {
-			hosts := make(map[string]*Host, 0)
-			device.Requests = &hosts
+	store.devicesByMAC.Range(func(mac, device interface{}) bool {
+		if _, ignored := store.ignored[device.(*Device).Mac]; !ignored {
+			requests[device.(*Device)] = device.(*Device).Requests
+			if reset {
+				hosts := make(map[string]*Host, 0)
+				device.(*Device).Requests = &hosts
+			}
 		}
-	}
+		return true
+	})
 	return &requests
+}
+
+// Close : should be called when the store is finished with
+func (store *Store) Close() error {
+	return store.db.Close()
 }
 
 // NewStore : Create a new empty Store
@@ -157,12 +162,12 @@ func NewStore(url string) (*Store, error) {
 		return nil
 	})
 	byIP := make(map[string]*Device, 0)
-	byMAC := make(map[string]*Device, 0)
+	byMAC := &sync.Map{}
 	sort.Sort(byTime(devices))
 	for _, device := range devices {
 		log.Printf("Loading device: %v\n", device)
 		byIP[device.IP] = device
-		byMAC[device.Mac] = device
+		byMAC.Store(device.Mac, device)
 	}
 	log.Printf("Loaded ignored: %d authorized: %d devices: %d\n", len(ignored), len(authorized), len(byIP))
 	return &Store{db, ignored, authorized, byIP, byMAC}, nil
@@ -182,7 +187,9 @@ func loadDevices(tx *bolt.Tx, devices *[]*Device) {
 		bucket.ForEach(func(k []byte, v []byte) error {
 			hosts := make(map[string]*Host, 0)
 			device := Device{&time.Time{}, "Unknown", "00:00:00:00:00:00", "0.0.0.0", &hosts}
-			json.Unmarshal(v, &device)
+			err := json.Unmarshal(v, &device)
+			logError("Error loading device", err)
+			device.Requests = &hosts
 			*devices = append(*devices, &device)
 			return nil
 		})

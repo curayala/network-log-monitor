@@ -30,6 +30,7 @@ type Config struct {
 func main() {
 	config := readConfig()
 	store, err := state.NewStore(config.DbURL)
+	defer store.Close()
 	exitOnError(err)
 	startProcessing(config.LogPath, store)
 	startUserInterface(config, store)
@@ -76,16 +77,16 @@ func process(devices chan *syslog.Device, requests chan *syslog.Request, store *
 		case device := <-devices:
 			store.AddDevice(device.At, device.Hostname, device.IP, device.Mac)
 		case request := <-requests:
-			if _, authorized := (*store.GetAuthorisedHosts())[request.Host]; authorized {
-				return
+			if _, authorized := (*store.GetAuthorisedHosts())[request.Host]; !authorized {
+				handleRequest(request, store)
 			}
-			handleRequest(request, store)
 		}
 	}
 }
 
 func handleRequest(request *syslog.Request, store *state.Store) {
 	device := store.FindDeviceByIP(request.Source)
+	log.Printf("handleRequest %v for %v\n", request, device)
 	if device == nil {
 		device = store.AddDevice(&time.Time{}, request.Source, request.Source, request.Source)
 	}
